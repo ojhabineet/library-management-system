@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# Library System v1.2 - Last updated 2023-11-15
-
 import json
 from collections import namedtuple, deque
 
