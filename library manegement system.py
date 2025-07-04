@@ -1,279 +1,261 @@
 
 import json
-from datetime import datetime
+import os
+from collections import deque
+from datetime import datetime, timedelta
 
-class StudentNode:
-    """
-    Represents a single student's record in the system.
-    Acts as a node in a singly linked list.
-    """
-
-    def __init__(self, student_id, name, grade, major):
-        self.student_id = int(student_id)
-        self.name = name.strip().title()
-        self.grade = grade.upper() if isinstance(grade, str) else str(grade)
-        self.major = major.strip().title()
-        self.added_date = datetime.now().strftime('%Y-%m-%d')
-        self.next = None
-
+class Book:
+    """Represents a physical book in our inventory"""
+    def __init__(self, title, author, isbn):
+        self.title = title.strip().title()
+        self.author = author.strip().title()
+        self.isbn = isbn.strip()
+        self.is_available = True
+        self.waitlist = deque()
+        self.due_date = None
+        self.checkout_history = []
+        
     def __str__(self):
-        return (f"ID: {self.student_id} | Name: {self.name:20} | "
-                f"Grade: {self.grade:2} | Major: {self.major:15} | Added: {self.added_date}")
+        status = "Available" if self.is_available else f"Checked Out (Due: {self.due_date})"
+        return f"'{self.title}' by {self.author} (ISBN: {self.isbn}) - {status}"
 
     def to_dict(self):
+        """Prepare book data for JSON storage"""
         return {
-            "student_id": self.student_id,
-            "name": self.name,
-            "grade": self.grade,
-            "major": self.major,
-            "added_date": self.added_date
+            'title': self.title,
+            'author': self.author,
+            'isbn': self.isbn,
+            'is_available': self.is_available,
+            'waitlist': list(self.waitlist),
+            'due_date': self.due_date.isoformat() if self.due_date else None,
+            'checkout_history': self.checkout_history
         }
 
-class StudentRecordSystem:
-    """
-    Core system class. Manages student records using a singly linked list.
-    """
-
+class Library:
+    """Core system class handling all library operations"""
+    
     def __init__(self):
-        self.head = None
-        self.record_count = 0
-        self.load_records()
-
-    def load_records(self):
-        """Load existing student records from file."""
+        self.books = {}  # ISBN -> Book mapping (our hash map)
+        self.log_file = "library_activity.log"
+        self.data_file = "library_inventory.json"
+        self.load_data()
+        self.current_date = datetime.now().date()
+        
+    # ========== Data Persistence Methods ==========
+    def load_data(self):
+        """Load existing library data from file"""
         try:
-            with open("student_records.dat", "r") as file:
-                data = json.load(file)
-                for entry in reversed(data.get("records", [])):
-                    self._add_node(entry["student_id"], entry["name"], entry["grade"], entry["major"], entry["added_date"])
-            print(f"✅ Loaded {self.record_count} record(s) from file.")
-        except (FileNotFoundError, json.JSONDecodeError):
-            print("📂 No previous records found. Starting fresh.")
-
-    def _add_node(self, student_id, name, grade, major, added_date=None):
-        """Internal helper to insert new student node at the front."""
-        new_student = StudentNode(student_id, name, grade, major)
-        if added_date:
-            new_student.added_date = added_date
-        new_student.next = self.head
-        self.head = new_student
-        self.record_count += 1
-
-    def save_records(self):
-        """Persist current student records to file."""
-        data = []
-        current = self.head
-        while current:
-            data.append(current.to_dict())
-            current = current.next
-        with open("student_records.dat", "w") as file:
-            json.dump({"records": data}, file, indent=2)
-        print(f"💾 Saved {len(data)} record(s) to file.")
-
-    def add_student(self):
-        """Prompt user and add a new student record."""
-        print("\n🆕 Add Student Record")
-        while True:
-            sid = input("Enter Student ID (numeric): ").strip()
-            if not sid.isdigit():
-                print("❌ ID must be a number.")
-                continue
-            if self.find_by_id(sid):
-                print(f"❌ Student ID {sid} already exists.")
-                continue
-            break
-
-        name = input("Enter Full Name: ").strip()
-        while not name:
-            name = input("❌ Name cannot be empty. Try again: ")
-
-        grade = input("Enter Grade (A-F or numeric): ").strip().upper()
-        major = input("Enter Major: ").strip() or "Undeclared"
-
-        self._add_node(int(sid), name, grade, major)
-        print(f"✅ Student '{name}' added successfully.")
-        self.save_records()
-
-    def find_by_id(self, student_id):
-        """Find a student by ID."""
-        current = self.head
-        while current:
-            if str(current.student_id) == str(student_id):
-                return current
-            current = current.next
-        return None
-
-    def search_students(self, term):
-        """Search by name or ID fragment."""
-        matches = []
-        current = self.head
-        term = term.lower()
-        while current:
-            if term in str(current.student_id).lower() or term in current.name.lower():
-                matches.append(current)
-            current = current.next
-        return matches
-
-    def update_student(self):
-        """Update a student's existing record."""
-        sid = input("Enter Student ID to update: ").strip()
-        student = self.find_by_id(sid)
-        if not student:
-            print("❌ Student not found.")
-            return
-
-        print(f"Current Record:\n{student}")
-        name = input(f"New Name (or press Enter to keep '{student.name}'): ").strip()
-        grade = input(f"New Grade (or press Enter to keep '{student.grade}'): ").strip().upper()
-        major = input(f"New Major (or press Enter to keep '{student.major}'): ").strip()
-
-        if name: student.name = name.title()
-        if grade: student.grade = grade
-        if major: student.major = major.title()
-
-        print("✅ Record updated.")
-        self.save_records()
-
-    def delete_student(self):
-        """Delete a student's record."""
-        sid = input("Enter Student ID to delete: ").strip()
-        prev, current = None, self.head
-
-        while current:
-            if str(current.student_id) == sid:
-                if prev:
-                    prev.next = current.next
-                else:
-                    self.head = current.next
-                self.record_count -= 1
-                print(f"🗑️ Deleted record for {current.name} (ID: {current.student_id})")
-                self.save_records()
-                return
-            prev = current
-            current = current.next
-
-        print("❌ Student not found.")
-
-    def display_all(self, sort_by="id"):
-        """Display all records, sorted by ID or name."""
-        if not self.head:
-            print("📭 No records to display.")
-            return
-
-        self.sort_by(sort_by)
-        print(f"\n📋 Student Records (sorted by {sort_by.title()}):\n" + "-"*80)
-        current = self.head
-        while current:
-            print(current)
-            current = current.next
-        print(f"\n📊 Total Records: {self.record_count}")
-
-    def sort_by(self, key="id"):
-        """Sort list in-place (bubble or insertion logic)."""
-        if key == "name":
-            # Bubble sort by name
-            changed = True
-            while changed:
-                changed, prev, curr = False, None, self.head
-                while curr and curr.next:
-                    if curr.name > curr.next.name:
-                        changed = True
-                        temp = curr.next
-                        curr.next = temp.next
-                        temp.next = curr
-                        if prev:
-                            prev.next = temp
-                        else:
-                            self.head = temp
-                        prev = temp
-                    else:
-                        prev = curr
-                        curr = curr.next
-        else:
-            # Insertion sort by ID
-            sorted_head = None
-            current = self.head
-            while current:
-                next_node = current.next
-                if not sorted_head or current.student_id < sorted_head.student_id:
-                    current.next = sorted_head
-                    sorted_head = current
-                else:
-                    pos = sorted_head
-                    while pos.next and pos.next.student_id < current.student_id:
-                        pos = pos.next
-                    current.next = pos.next
-                    pos.next = current
-                current = next_node
-            self.head = sorted_head
-
-    def export_to_txt(self, filename="student_records.txt"):
-        """Write all records to a human-readable text file."""
-        if not self.head:
-            print("📭 No records to export.")
-            return
-        with open(filename, "w") as f:
-            f.write("Student Record Export\n")
-            f.write("=" * 60 + "\n")
-            f.write(f"Generated on: {datetime.now()}\n\n")
-            current = self.head
-            while current:
-                f.write(str(current) + "\n")
-                current = current.next
-        print(f"📤 Exported records to '{filename}'.")
-
-def start_cli():
-    system = StudentRecordSystem()
-
-    menu = """
-==== Student Record CLI ====
-Commands:
-  add      - Add new student
-  update   - Update student record
-  delete   - Delete student record
-  search   - Search by ID or name
-  display  - Show all records
-  export   - Export records to text file
-  help     - Show this menu
-  exit     - Exit the program
-============================"""
-
-    print(menu)
-    while True:
-        try:
-            cmd = input("\n> ").strip().lower()
-            if cmd == "add":
-                system.add_student()
-            elif cmd == "update":
-                system.update_student()
-            elif cmd == "delete":
-                system.delete_student()
-            elif cmd == "search":
-                query = input("🔍 Enter ID or name: ").strip()
-                results = system.search_students(query)
-                if results:
-                    print("\n🔎 Search Results:")
-                    for r in results:
-                        print(r)
-                else:
-                    print("No matching student found.")
-            elif cmd.startswith("display"):
-                sort_key = cmd.split()[1] if len(cmd.split()) > 1 else "id"
-                system.display_all(sort_key)
-            elif cmd == "export":
-                system.export_to_txt()
-            elif cmd == "help":
-                print(menu)
-            elif cmd == "exit":
-                system.save_records()
-                print("👋 Exiting. Data saved.")
-                break
-            else:
-                print("❓ Unknown command. Type 'help' to see options.")
-        except KeyboardInterrupt:
-            print("\n👋 Use 'exit' to quit cleanly.")
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r') as f:
+                    data = json.load(f)
+                    for isbn, book_data in data.items():
+                        book = Book(book_data['title'], 
+                                  book_data['author'], 
+                                  isbn)
+                        book.is_available = book_data['is_available']
+                        book.waitlist = deque(book_data.get('waitlist', []))
+                        book.due_date = datetime.strptime(book_data['due_date'], '%Y-%m-%d').date() if book_data['due_date'] else None
+                        book.checkout_history = book_data.get('checkout_history', [])
+                        self.books[isbn] = book
+            self.log("System initialized - data loaded")
         except Exception as e:
-            print(f"❌ Error: {e}")
+            self.log(f"Error loading data: {str(e)}", error=True)
+
+    def save_data(self):
+        """Save current state to file"""
+        try:
+            data = {isbn: book.to_dict() for isbn, book in self.books.items()}
+            with open(self.data_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            self.log(f"Error saving data: {str(e)}", error=True)
+            return False
+
+    def log(self, message, error=False):
+        """Record system activity and errors"""
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        log_type = "ERROR" if error else "INFO"
+        entry = f"[{timestamp}] {log_type}: {message}\n"
+        
+        with open(self.log_file, 'a') as f:
+            f.write(entry)
+        
+        if error:
+            print(f"! System Error: {message}")
+
+    # ========== Core Library Operations ==========
+    def add_book(self, title, author, isbn):
+        """Add a new book to the collection"""
+        if not isbn or not title:
+            print("Error: ISBN and title are required")
+            return False
+            
+        if isbn in self.books:
+            print(f"Error: Book with ISBN {isbn} already exists")
+            return False
+            
+        new_book = Book(title, author, isbn)
+        self.books[isbn] = new_book
+        self.log(f"Added new book: {title} by {author} (ISBN: {isbn})")
+        self.save_data()
+        print(f"Successfully added '{title}' to the collection")
+        return True
+
+    def checkout_book(self, isbn, member_id, days=14):
+        """Check out a book to a patron"""
+        if isbn not in self.books:
+            print("Error: Book not found in our system")
+            return False
+            
+        book = self.books[isbn]
+        
+        if not book.is_available:
+            if member_id not in book.waitlist:
+                book.waitlist.append(member_id)
+                self.save_data()
+                print(f"Book is currently checked out. You're #{len(book.waitlist)} in line.")
+                self.log(f"Added {member_id} to waitlist for {book.title}")
+            else:
+                print("You're already on the waitlist for this book")
+            return False
+            
+        book.is_available = False
+        book.due_date = self.current_date + timedelta(days=days)
+        book.checkout_history.append({
+            'member': member_id,
+            'checkout_date': self.current_date.isoformat(),
+            'due_date': book.due_date.isoformat()
+        })
+        self.save_data()
+        self.log(f"{member_id} checked out {book.title} (Due: {book.due_date})")
+        print(f"Successfully checked out '{book.title}'. Due: {book.due_date}")
+        return True
+
+    def return_book(self, isbn):
+        """Process a book return"""
+        if isbn not in self.books:
+            print("Error: Invalid ISBN - not in our records")
+            return False
+            
+        book = self.books[isbn]
+        
+        if book.is_available:
+            print("Error: This book wasn't checked out")
+            return False
+            
+        # Check for late returns
+        is_late = self.current_date > book.due_date if book.due_date else False
+        late_days = (self.current_date - book.due_date).days if is_late else 0
+        
+        book.is_available = True
+        book.due_date = None
+        
+        # Notify next in line if waitlisted
+        if book.waitlist:
+            next_member = book.waitlist.popleft()
+            self.log(f"Notifying {next_member} that {book.title} is available")
+            print(f"Notified member {next_member} that book is now available")
+        
+        self.save_data()
+        self.log(f"Book returned: {book.title}" + 
+                (f" (Late by {late_days} days)" if is_late else ""))
+        
+        if is_late:
+            print(f"Book returned {late_days} days late. Fine may apply.")
+        else:
+            print("Thank you for returning the book on time!")
+        
+        return True
+
+    def search_books(self, search_term):
+        """Search books by title, author, or ISBN"""
+        results = []
+        search_term = search_term.lower().strip()
+        
+        for book in self.books.values():
+            if (search_term in book.title.lower() or 
+                search_term in book.author.lower() or 
+                search_term in book.isbn.lower()):
+                results.append(book)
+        
+        if not results:
+            print("\nNo matching books found")
+            return False
+        
+        print(f"\nFound {len(results)} matching book(s):")
+        for book in results:
+            print(f"- {book}")
+        
+        return True
+
+def print_menu():
+    """Display the main menu"""
+    print("\nLIBRARY MANAGEMENT SYSTEM")
+    print("1. Add new book")
+    print("2. Check out book")
+    print("3. Return book")
+    print("4. Search books")
+    print("5. View all books")
+    print("6. Exit")
+
+def get_input(prompt, required=True):
+    """Helper for getting user input"""
+    while True:
+        user_input = input(prompt).strip()
+        if not user_input and required:
+            print("This field is required")
+            continue
+        return user_input
+
+def main():
+    """Main program loop"""
+    print("\nWelcome to the Library Management System!")
+    library = Library()
+    
+    while True:
+        print_menu()
+        choice = get_input("Enter your choice (1-6): ")
+        
+        try:
+            if choice == '1':
+                print("\nADD NEW BOOK")
+                title = get_input("Title: ")
+                author = get_input("Author: ")
+                isbn = get_input("ISBN: ")
+                library.add_book(title, author, isbn)
+            
+            elif choice == '2':
+                print("\nCHECK OUT BOOK")
+                isbn = get_input("Enter book ISBN: ")
+                member_id = get_input("Enter your member ID: ")
+                library.checkout_book(isbn, member_id)
+            
+            elif choice == '3':
+                print("\nRETURN BOOK")
+                isbn = get_input("Enter book ISBN: ")
+                library.return_book(isbn)
+            
+            elif choice == '4':
+                print("\nSEARCH BOOKS")
+                search_term = get_input("Enter title, author or ISBN: ")
+                library.search_books(search_term)
+            
+            elif choice == '5':
+                print("\nALL BOOKS IN COLLECTION:")
+                for book in library.books.values():
+                    print(f"- {book}")
+            
+            elif choice == '6':
+                print("\nThank you for using the Library System!")
+                break
+            
+            else:
+                print("Invalid choice. Please enter 1-6")
+        
+        except Exception as e:
+            library.log(f"Unexpected error: {str(e)}", error=True)
+            print("An error occurred. Please try again.")
 
 if __name__ == "__main__":
-    start_cli()
+    main()
